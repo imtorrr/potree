@@ -92,8 +92,9 @@
 				volume.name = "Invisible";
 				volume.scale.set(178.04, 159.14, 70.00);
 				volume.position.set(589661.930, 231374.010, 749.620);
-				volume.clip = true;
-				volume.visible = false;
+				volume.clip = false;
+				volume.visible = true;
+				volume.material.color = new THREE.Color("rgb(255, 255, 255)")
 
 				scene.addVolume(volume);
 			}

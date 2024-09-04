@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="description" content="">
+	<meta name="author" content="">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<title>Potree Viewer</title>
+
+	<link rel="stylesheet" type="text/css" href="../build/potree/potree.css">
+	<link rel="stylesheet" type="text/css" href="../libs/jquery-ui/jquery-ui.min.css">
+	<link rel="stylesheet" type="text/css" href="../libs/openlayers3/ol.css">
+	<link rel="stylesheet" type="text/css" href="../libs/spectrum/spectrum.css">
+	<link rel="stylesheet" type="text/css" href="../libs/jstree/themes/mixed/style.css">
+</head>
+
+<body>
+	<script src="../libs/jquery/jquery-3.1.1.min.js"></script>
+	<script src="../libs/spectrum/spectrum.js"></script>
+	<script src="../libs/jquery-ui/jquery-ui.min.js"></script>
+	<script src="../libs/other/BinaryHeap.js"></script>
+	<script src="../libs/tween/tween.min.js"></script>
+	<script src="../libs/d3/d3.js"></script>
+	<script src="../libs/proj4/proj4.js"></script>
+	<script src="../libs/openlayers3/ol.js"></script>
+	<script src="../libs/i18next/i18next.js"></script>
+	<script src="../libs/jstree/jstree.js"></script>
+	<script src="../libs/copc/index.js"></script>
+	<script src="../build/potree/potree.js"></script>
+	<script src="../libs/plasio/js/laslaz.js"></script>
+	<script src="../libs/shapefile/shapefile.js"></script>
+
+	<!-- INCLUDE ADDITIONAL DEPENDENCIES HERE -->
+	<!-- INCLUDE SETTINGS HERE -->
+	
+	<div id="gui_container" style="z-index: 999; position: absolute; right: 10px; top: 0;"></div>
+	<div class="potree_container" style="position: absolute; width: 100%; height: 100%; left: 0px; top: 0px; ">
+		<div id="potree_render_area" style="background-image: url('https://storage.googleapis.com/pointcloud-storage/resources/skyviv.png');"></div>
+		<div id="potree_sidebar_container"> </div>
+	</div>
+	<div style="position: absolute; right: 10px; bottom: 10px; display: block; z-index: 998;">
+		<a href="https://www.skyviv.com/quantum-systems/trinity-f90">
+			<img style="border-radius: 10px; width: 40%; float: right;" src="https://storage.googleapis.com/pointcloud-storage/resources/skyviv.png">
+		</a>
+	</div>
+	
+	<script type="module">
+
+	import * as THREE from "../libs/three.js/build/three.module.js";
+	import {PLYLoader} from "../libs/three.js/loaders/PLYLoader.js";
+	import {OBJLoader} from "../libs/three.js/loaders/OBJLoader.js";
+	import {GUI} from "../libs/dat.gui/build/dat.gui.module.js";
+	
+		window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
+		
+		viewer.setEDLEnabled(false);
+		viewer.setFOV(60);
+		viewer.setPointBudget(10_000_000);
+		viewer.setMinNodeSize(5);
+		viewer.loadSettingsFromURL();
+		const controls = new Potree.EarthControls(viewer);
+		console.log(Potree)
+		viewer.setControls(controls);
+		
+		// Water surface
+		let mesh1;
+		let waterLevel = 0;
+		let params = { "water level": waterLevel};
+		const gui = new GUI({autoPlace: false, width: 300});
+		gui.domElement.id = 'gui';
+
+		viewer.setDescription(`PoC project, Marine Department.</br><br><br>
+		Water level` + `: ` + waterLevel.toFixed(3) + `m MSL`);
+		
+		viewer.loadGUI(() => {
+			viewer.setLanguage('en');
+			$("#menu_appearance").next().show();
+			//viewer.toggleSidebar();
+		});
+
+		// wrap load code into an async function so that we can use "await"
+		async function load(){
+
+			// specify point clouds that are to be loaded and callbacks to invoke 
+			let pointclouds = [
+				{
+					url: "https://storage.googleapis.com/pointcloud-storage/marine_poc/513746880.copc.laz",
+					callback: (pointcloud) => {
+						pointcloud.name = "513746880";
+
+						let material = pointcloud.material;
+						material.size = 0.1;
+						material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+					},
+				},{
+					url: "https://storage.googleapis.com/pointcloud-storage/marine_poc/513746882.copc.laz", 
+					callback: (pointcloud) => {
+						pointcloud.name = "513746882";
+
+						let material = pointcloud.material;
+						material.size = 0.1
+						material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+					},
+				},{
+					url: "https://storage.googleapis.com/pointcloud-storage/marine_poc/river.copc.laz", 
+					callback: (pointcloud) => {
+						pointcloud.name = "river";
+
+						let material = pointcloud.material;
+						material.size = 0.1
+						material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+						material.activeAttributeName = "elevation"
+					},
+				}
+			]
+
+			// start loading all point clouds asynchronously, get a promise for each one that resolves when it's loaded
+			let promises = pointclouds.map(p => Potree.loadPointCloud(p.url));
+
+			// now iterate over all promises in order
+			for(let i = 0; i < promises.length; i++){
+
+				// wait until this point cloud is loaded before processing the next one
+				let pointcloud = (await promises[i]).pointcloud;
+
+				pointclouds[i].callback(pointcloud);
+				viewer.scene.addPointCloud(pointcloud);
+			}
+
+			viewer.fitToScreen();
+		}
+
+		load()
+
+		// water surface
+		var loader = new PLYLoader();
+		loader.load("https://storage.googleapis.com/pointcloud-storage/marine_poc/boundary.ply", (geometry) => {
+			geometry.computeVertexNormals();
+			console.log(geometry)
+			
+			{
+				let material = new THREE.MeshPhysicalMaterial( { 
+					color: 0x0055ff, 
+					metalness: 0,
+					roughness: 0,
+					clearcoat:  0,
+					clearcoatRoughness: 0,
+					reflectivity: 0,
+					transparent: true, 
+					opacity: 1,
+					side: THREE.DoubleSide
+					// depthTest: true, 
+					// depthWrite: false
+				} );
+				mesh1 = new THREE.Mesh( geometry, material );
+				// mesh1.position.set(0, 0, waterLevel);
+				// mesh1.scale.multiplyScalar(1);
+				// mesh1.rotation.set(0, 0, 0)
+				mesh1.visible = false
+				viewer.scene.scene.add(mesh1);
+			}
+			viewer.onGUILoaded(() => {
+			// Add entries to object list in sidebar
+			let tree = $(`#jstree_scene`);
+			let parentNode = "other";
+
+			let sl1ID = tree.jstree('create_node', parentNode, { 
+					"text": "Water Surface", 
+					"icon": `${Potree.resourcePath}/icons/triangle.svg`,
+					"data": mesh1
+				}, 
+				"last", false, false);
+			tree.jstree(mesh1.visible ? "check_node" : "uncheck_node", sl1ID);
+
+		});
+
+		// tool for adjust water lavel
+		let pWaterLevel = gui.add(mesh1.position, "z", waterLevel - 5, waterLevel + 5, 0.01).name("Water level (m MSL)");
+		pWaterLevel.onChange( (value) => {
+			waterLevel = value;
+			viewer.setDescription(`PoC project, Marine Department.</br><br><br>
+		Water level` + `: ` + waterLevel.toFixed(3) + `m MSL`);	
+		});
+
+		var toggleBtn = { toggleMesh:function(){
+			viewer.scene.scene.children[2].visible = !viewer.scene.scene.children[2].visible
+		}};
+		gui.add(toggleBtn,'toggleMesh').name("Toggle water surface");
+
+		var resetBtn = { resetView:function(){
+			viewer.fitToScreen()
+		}};
+		gui.add(resetBtn,'resetView').name("Reset view");
+		gui_container.appendChild(gui.domElement);
+	
+		});
+
+		{ // LIGHTING
+		const directional = new THREE.DirectionalLight( 0xffffff, 1.0);
+		directional.position.set( 10, 10, 10 );
+		directional.lookAt(0, 0, 0);
+
+		const ambient = new THREE.AmbientLight(0x555555);
+
+		viewer.scene.scene.add(directional);
+		viewer.scene.scene.add(ambient);
+	}
+
+	</script>
+
+  </body>
+</html>
+

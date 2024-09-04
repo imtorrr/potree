@@ -79,19 +79,12 @@ let shaders = [
 // from the command line to start the server (default port is 8080)
 gulp.task('webserver', gulp.series(async function() {
 	server = connect.server({
-		port: 1234,
+		host: '0.0.0.0',
+		port: 8080,
 		https: false,
+		// fallback: 'public/index.html',
 	});
 }));
-
-gulp.task('examples_page', async function(done) {
-	await Promise.all([
-		createExamplesPage(),
-		createGithubPage(),
-	]);
-
-	done();
-});
 
 gulp.task('icons_viewer', async function(done) {
 	await createIconsPage();
@@ -164,7 +157,7 @@ gulp.task("shaders", async function(){
 
 gulp.task('build', 
 	gulp.series(
-		gulp.parallel("workers", "lazylibs", "shaders", "icons_viewer", "examples_page"),
+		gulp.parallel("workers", "lazylibs", "shaders", "icons_viewer"),
 		async function(done){
 			gulp.src(paths.html).pipe(gulp.dest('build/potree'));
 

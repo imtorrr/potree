@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="description" content="">
+	<meta name="author" content="">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<title>Potree Viewer</title>
+
+	<link rel="stylesheet" type="text/css" href="../build/potree/potree.css">
+	<link rel="stylesheet" type="text/css" href="../libs/jquery-ui/jquery-ui.min.css">
+	<link rel="stylesheet" type="text/css" href="../libs/openlayers3/ol.css">
+	<link rel="stylesheet" type="text/css" href="../libs/spectrum/spectrum.css">
+	<link rel="stylesheet" type="text/css" href="../libs/jstree/themes/mixed/style.css">
+	<link rel="stylesheet" type="text/css" href="../libs/Cesium/Widgets/CesiumWidget/CesiumWidget.css">
+
+	<style>
+	
+	#potree_toolbar{
+		position: absolute; 
+		z-index: 10000; 
+		left: 100px; 
+		top: 0px;
+		background: black;
+		color: white;
+		padding: 0.3em 0.8em;
+		font-family: "system-ui";
+		border-radius: 0em 0em 0.3em 0.3em;
+		display: flex;
+	}
+
+	.potree_toolbar_label{
+		text-align: center;
+		font-size: smaller;
+		opacity: 0.9;
+	}
+
+	.potree_toolbar_separator{
+		background: white;
+		padding: 0px;
+		margin: 5px 10px;
+		width: 1px;
+	}
+	
+	</style>
+</head>
+
+<body>
+	<script src="../libs/jquery/jquery-3.1.1.min.js"></script>
+	<script src="../libs/spectrum/spectrum.js"></script>
+	<script src="../libs/jquery-ui/jquery-ui.min.js"></script>
+	<script src="../libs/other/BinaryHeap.js"></script>
+	<script src="../libs/tween/tween.min.js"></script>
+	<script src="../libs/d3/d3.js"></script>
+	<script src="../libs/proj4/proj4.js"></script>
+	<script src="../libs/openlayers3/ol.js"></script>
+	<script src="../libs/i18next/i18next.js"></script>
+	<script src="../libs/jstree/jstree.js"></script>
+	<script src="../build/potree/potree.js"></script>
+	<script src="../libs/plasio/js/laslaz.js"></script>
+	<script src="../libs/Cesium/Cesium.js"></script>
+	
+	<!-- INCLUDE ADDITIONAL DEPENDENCIES HERE -->
+	<!-- INCLUDE SETTINGS HERE -->
+	<div id="gui_container" style="z-index: 999; position: absolute; right: 10px; top: 0;"></div>
+	<div class="potree_container" style="position: absolute; width: 100%; height: 100%; left: 0px; top: 0px; ">
+		
+		<div id="potree_render_area" style="background-image: url('https://storage.googleapis.com/pointcloud-storage/resources/skyviv.png');">
+			<div id="cesiumContainer" style="position: absolute; width: 100%; height: 100%; background-color:green"></div>
+			<div id="potree_toolbar"></div>
+		</div>
+		<div id="potree_sidebar_container"> </div>
+		<div style="position: absolute; right: 10px; bottom: 10px; display: block; z-index: 998;">
+		<a href="https://www.skyviv.com/quantum-systems/trinity-f90">
+			<img style="border-radius: 10px; width: 40%; float: right;" src="https://storage.googleapis.com/pointcloud-storage/resources/skyviv.png">
+		</a>
+	</div>
+	</div>
+
+
+<script type="module">
+
+	import * as THREE from "../libs/three.js/build/three.module.js";
+	import {PLYLoader} from "../libs/three.js/loaders/PLYLoader.js";
+	import {OBJLoader} from "../libs/three.js/loaders/OBJLoader.js";
+	
+	window.cesiumViewer = new Cesium.Viewer('cesiumContainer', {
+		useDefaultRenderLoop: false,
+		animation: false,
+		baseLayerPicker : false,
+		fullscreenButton: false, 
+		geocoder: false,
+		homeButton: false,
+		infoBox: false,
+		sceneModePicker: false,
+		selectionIndicator: false,
+		timeline: false,
+		navigationHelpButton: false,
+		imageryProvider : Cesium.createOpenStreetMapImageryProvider({url : 'https://a.tile.openstreetmap.org/'}),
+		terrainShadows: Cesium.ShadowMode.DISABLED,
+	});
+
+	let cp = new Cesium.Cartesian3(4304000.154026048, 552161.235598733, 4660771.704035539);
+	cesiumViewer.camera.setView({
+		destination : cp,
+		orientation: {
+			heading : 10, 
+			pitch : -Cesium.Math.PI_OVER_TWO * 0.5, 
+			roll : 0.0 
+		}
+	});
+
+	window.potreeViewer = new Potree.Viewer(document.getElementById("potree_render_area"), {
+		useDefaultRenderLoop: false
+	});
+	potreeViewer.setEDLEnabled(true);
+	potreeViewer.setFOV(60);
+	potreeViewer.setPointBudget(3_000_000);
+	potreeViewer.setMinNodeSize(10);
+	potreeViewer.loadSettingsFromURL();
+	potreeViewer.setBackground(null);
+	potreeViewer.useHQ = true;
+
+	potreeViewer.setDescription(`Pattaya Demo project.<br><br>
+				Water level` + `: ` + (-0.707).toFixed(3) + `m MSL`);
+
+	potreeViewer.loadGUI(() => {
+		potreeViewer.setLanguage('en');
+		// $("#menu_appearance").next().show();
+		// $("#menu_tools").next().show();
+		// $("#menu_scene").next().show();
+		// potreeViewer.toggleSidebar();
+	});
+
+	let mesh1;
+	// let waterLevel = -2972.26; // = -2.10 MSL
+	// let waterLevel = 29.936 // = -0.56 MSL 
+	let waterLevel = -0.707 // = -0.56 MSL
+
+	Potree.loadPointCloud("https://storage.googleapis.com/pointcloud-storage/20231003_pattaya_qube240/metadata.json", "chumphon2ND", function(e){
+		let scene = potreeViewer.scene;
+		
+		scene.addPointCloud(e.pointcloud);
+
+		e.pointcloud.position.set(704613.518, 1411334.191, -0.707);
+		//e.pointcloud.rotation.set(0, 0, -0.035);
+
+		let material = e.pointcloud.material;
+		material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+		material.size = 0.7;
+		material.elevationRange = [0, 50];
+		material.weightRGB = 1.0;
+		material.weightElevation = 1.0;
+		
+		//scene.view.position.set(540523.913, 1179187.472, 1248.507);
+		//scene.view.lookAt(540160.147, 1180443.332, 209.154);
+		potreeViewer.fitToScreen()
+
+		var loader = new PLYLoader();
+		loader.load("https://storage.googleapis.com/pointcloud-storage/20231003_pattaya_qube240/boundary.ply", (geometry) => {
+			geometry.computeVertexNormals();
+			
+			{
+				let material = new THREE.MeshPhysicalMaterial( { 
+					color: 0x0055ff, 
+					metalness: 0,
+					roughness: 0.5,
+					clearcoat:  0.5,
+					clearcoatRoughness: 0.5,
+					reflectivity: 0.5,
+					transparent: true, 
+					opacity: 0.7,
+					side: THREE.DoubleSide
+					// depthTest: true, 
+					// depthWrite: false
+				} );
+				mesh1 = new THREE.Mesh( geometry, material );
+				mesh1.position.set(0, 0, waterLevel);
+				mesh1.scale.multiplyScalar(1);
+				mesh1.rotation.set(0, 0, 0)
+				potreeViewer.scene.scene.add(mesh1);
+				mesh1.visible = false;
+			}
+			potreeViewer.onGUILoaded(() => {
+			// Add entries to object list in sidebar
+			let tree = $(`#jstree_scene`);
+			let parentNode = "other";
+
+			let sl1ID = tree.jstree('create_node', parentNode, { 
+					"text": "Water Surface", 
+					"icon": `${Potree.resourcePath}/icons/triangle.svg`,
+					"data": mesh1
+				}, 
+				"last", false, false);
+			tree.jstree(mesh1.visible ? "check_node" : "uncheck_node", sl1ID);
+
+			});
+		});
+
+		{ // LIGHTS
+		const directional = new THREE.DirectionalLight( 0xffffff, 1.0);
+		directional.position.set( 10, 10, 10 );
+		directional.lookAt(0, 0, 0);
+
+		const ambient = new THREE.AmbientLight(0x555555);
+
+		potreeViewer.scene.scene.add(directional);
+		potreeViewer.scene.scene.add(ambient);
+		}
+
+		//let pointcloudProjection = e.pointcloud.projection;
+		let pointcloudProjection = "+proj=utm +zone=47 +ellps=WGS84 +datum=WGS84 +units=m +no_defs";
+		let mapProjection = proj4.defs("WGS84");
+
+		window.toMap = proj4(pointcloudProjection, mapProjection);
+		window.toScene = proj4(mapProjection, pointcloudProjection);
+		
+		{
+			let bb = potreeViewer.getBoundingBox();
+
+			let minWGS84 = proj4(pointcloudProjection, mapProjection, bb.min.toArray());
+			let maxWGS84 = proj4(pointcloudProjection, mapProjection, bb.max.toArray());
+		}
+	});
+
+	
+
+	function loop(timestamp){
+		requestAnimationFrame(loop);
+
+		potreeViewer.update(potreeViewer.clock.getDelta(), timestamp);
+
+		potreeViewer.render();
+
+		if(window.toMap !== undefined){
+
+			{
+				let camera = potreeViewer.scene.getActiveCamera();
+
+				let pPos		= new THREE.Vector3(0, 0, 0).applyMatrix4(camera.matrixWorld);
+				let pRight  = new THREE.Vector3(600, 0, 0).applyMatrix4(camera.matrixWorld);
+				let pUp		 = new THREE.Vector3(0, 600, 0).applyMatrix4(camera.matrixWorld);
+				let pTarget = potreeViewer.scene.view.getPivot();
+
+				let toCes = (pos) => {
+					let xy = [pos.x, pos.y];
+					let height = pos.z;
+					let deg = toMap.forward(xy);
+					let cPos = Cesium.Cartesian3.fromDegrees(...deg, height);
+
+					return cPos;
+				};
+
+				let cPos = toCes(pPos);
+				let cUpTarget = toCes(pUp);
+				let cTarget = toCes(pTarget);
+
+				let cDir = Cesium.Cartesian3.subtract(cTarget, cPos, new Cesium.Cartesian3());
+				let cUp = Cesium.Cartesian3.subtract(cUpTarget, cPos, new Cesium.Cartesian3());
+
+				cDir = Cesium.Cartesian3.normalize(cDir, new Cesium.Cartesian3());
+				cUp = Cesium.Cartesian3.normalize(cUp, new Cesium.Cartesian3());
+
+				cesiumViewer.camera.setView({
+					destination : cPos,
+					orientation : {
+						direction : cDir,
+						up : cUp
+					}
+				});
+				
+			}
+
+			let aspect = potreeViewer.scene.getActiveCamera().aspect;
+			if(aspect < 1){
+				let fovy = Math.PI * (potreeViewer.scene.getActiveCamera().fov / 180);
+				cesiumViewer.camera.frustum.fov = fovy;
+			}else{
+				let fovy = Math.PI * (potreeViewer.scene.getActiveCamera().fov / 180);
+				let fovx = Math.atan(Math.tan(0.5 * fovy) * aspect) * 2
+				cesiumViewer.camera.frustum.fov = fovx;
+			}
+			
+		}
+
+		cesiumViewer.render();
+	}
+
+	requestAnimationFrame(loop);
+	
+	// 1: define html of toolbar first 
+	// 2: then populate with content and actions 
+	//
+	// Following files can be used as references on how to add certain functionality to the toolbar:
+	// - sidebar.html
+	// - sidebar.js
+	// - PropertiesPanel.html and its dependencies (DistancePanel, ProfilePanel, ...)
+	// 
+
+	// HTML
+	const elToolbar = $("#potree_toolbar");
+	elToolbar.html(`
+		<span>
+			<div class="potree_toolbar_label">
+				Attribute
+			</div>
+			<div>
+				<img title= "Elevation" name="action_elevation" src="${Potree.resourcePath}/icons/profile.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+				<img title= "RGB" name="action_rgb" src="${Potree.resourcePath}/icons/rgb.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+				<img title="RGB and Elevation" name="action_both" src="${Potree.resourcePath}/icons/rgb_elevation.png" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+			</div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+		<span>
+			<div class="potree_toolbar_label">
+				<span>Height Profile</span>: 
+				<span name="lblProfileWidth" style="display: inline-block; width: 4em;"></span>
+			</div>
+			<div style="display: flex">
+				<img name="action_measure_hProfile" src="${Potree.resourcePath}/icons/profile.svg" class="annotation-action-icon" style="width: 2em; height: auto;"/>
+				<div id="sldProfileWidth" style="display: box; width: 120px; margin-left: 10px; margin-right: 10px;"></div>
+			</div>
+			<div id="sldProfileWidth"></div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+
+		<span>
+			<div class="potree_toolbar_label">
+				<span data-i18n="appearance.nb_max_pts">Point Budget</span>: 
+				<span name="lblPointBudget" style="display: inline-block; width: 4em;"></span>
+			</div>
+			<div>
+				<div id="sldPointBudget"></div>
+			</div>
+		</span>
+
+		<span class="potree_toolbar_separator" />
+
+		<span>
+			<div class="potree_toolbar_label">
+				<span >Water Level</span>
+			</div>
+			<div>
+				<div id="sldWaterLevel" style="width: 150px;"></div>
+			</div>
+		</span>
+	`);
+
+	// CONTENT & ACTIONS
+
+	{ // ATTRIBUTE
+		elToolbar.find("img[name=action_elevation]").click( () => {
+			potreeViewer.scene.pointclouds.forEach( pc => pc.material.activeAttributeName = "elevation" );
+		});
+
+		elToolbar.find("img[name=action_rgb]").click( () => {
+			potreeViewer.scene.pointclouds.forEach( pc => pc.material.activeAttributeName = "rgba" );
+		});
+		elToolbar.find("img[name=action_both]").click( () => {
+			potreeViewer.scene.pointclouds.forEach( pc => pc.material.activeAttributeName = "composite" );
+		});
+	}
+
+	{ // PROFILE
+		elToolbar.find("img[name=action_measure_hProfile]").click( () => {
+			potreeViewer.scene.removeProfile(potreeViewer.scene.profiles[0]);
+			const profile = potreeViewer.profileTool.startInsertion({
+			});
+			potreeViewer.profileWindow.show();
+			potreeViewer.profileWindowController.setProfile(potreeViewer.scene.profiles[0]);
+			elToolbar.find('#sldProfileWidth').slider({
+				value: potreeViewer.scene.profiles[0].getWidth(),
+				min: 0.50,
+				max: 50,
+				step: 0.05,
+				slide: (event, ui) => { 
+					potreeViewer.scene.profiles[0].setWidth(ui.value); 
+					elToolbar.find('span[name=lblProfileWidth]').html(ui.value.toFixed(3) + "m")
+				}
+			});
+		});
+	}
+
+	{ // POINT BUDGET
+		elToolbar.find('#sldPointBudget').slider({
+			value: potreeViewer.getPointBudget(),
+			min: 100_000,
+			max: 5_000_000,
+			step: 100_000,
+			slide: (event, ui) => { potreeViewer.setPointBudget(ui.value); }
+		});
+
+		const onBudgetChange = () => {
+			let budget = (potreeViewer.getPointBudget() / (1000_000)).toFixed(1) + "M";
+			elToolbar.find('span[name=lblPointBudget]').html(budget);
+		};
+
+		onBudgetChange();
+		potreeViewer.addEventListener("point_budget_changed", onBudgetChange);
+	}
+
+	{ // WATER LEVEL
+		elToolbar.find("#sldWaterLevel").slider({
+			value: waterLevel,
+			min: waterLevel - 1,
+			max: waterLevel + 50,
+			step: 0.05,
+			slide: (event, ui) => {
+				mesh1.position.set(0, 0, ui.value)
+				potreeViewer.setDescription(`Pattaya Demo project.<br><br>
+				Water level` + `: ` + (ui.value).toFixed(3) + `m MSL`);
+			}
+		})
+	}
+
+  </script>
+
+  <script type="module">
+
+	
+	
+	</script>
+</body>
+</html>
